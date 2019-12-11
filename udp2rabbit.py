@@ -2,6 +2,7 @@
 
 import pika
 import pika.adapters
+from pika.adapters import tornado_connection
 import tornado.web
 import tornado.ioloop
 import tornado.httpclient
@@ -63,8 +64,8 @@ class RabbitInterface(object):
 
     def connect(self):
         creds = pika.PlainCredentials(self.broker_user, self.broker_pwd)
-        params = pika.ConnectionParameters(host=self.broker_ip, port=self.broker_port, credentials=creds, heartbeat_interval=3)
-        pika.adapters.TornadoConnection(params, self.on_connection_open, self.on_connection_fail)
+        params = pika.ConnectionParameters(host=self.broker_ip, port=self.broker_port, credentials=creds, heartbeat=3)
+        pika.adapters.tornado_connection.TornadoConnection(params, self.on_connection_open, self.on_connection_fail)
 
     def close_connection(self):
         LOGGER.info('Closing connection')
@@ -107,7 +108,7 @@ class RabbitInterface(object):
 
     def set_qos(self):
         LOGGER.info('Setting prefetch to 1')
-        self.channel.basic_qos(self.on_qos_set, prefetch_count=1)
+        self.channel.basic_qos(callback=self.on_qos_set, prefetch_count=1)
 
     def on_qos_set(self, unused):
         LOGGER.info('QoS set')
@@ -116,12 +117,13 @@ class RabbitInterface(object):
     def start_consuming(self):
         LOGGER.info('Starting %s consumer', self.rx_queue)
         self.channel.add_on_cancel_callback(self.on_consumer_cancelled)
-        self.consumer_tag = self.channel.basic_consume(self.on_message, self.rx_queue)
+        self.consumer_tag = self.channel.basic_consume(on_message_callback=self.on_message,
+                queue=self.rx_queue)
 
     def stop_consuming(self):
         if self.channel:
             LOGGER.info('Stopping %s consumer', self.rx_queue)
-            self.channel.basic_cancel(self.on_cancel_ok, self.consumer_tag)
+            self.channel.basic_cancel(callback=self.on_cancel_ok, consumer_tag=self.consumer_tag)
 
     def on_cancel_ok(self, unused_frame):
         LOGGER.info('%s consumer stopped', self.rx_queue)
